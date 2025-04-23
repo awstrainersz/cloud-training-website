@@ -1,0 +1,74 @@
+/* Adding some CSS for the new image elements */
+
+.service-image {
+    margin-bottom: 15px;
+    overflow: hidden;
+    border-radius: 8px;
+    height: 180px;
+}
+
+.service-image img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: transform 0.3s ease;
+}
+
+.service-image img:hover {
+    transform: scale(1.05);
+}
+
+.feature-image {
+    margin-bottom: 15px;
+    overflow: hidden;
+    border-radius: 8px;
+    height: 150px;
+}
+
+.feature-image img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    transition: transform 0.3s ease;
+}
+
+.feature-image img:hover {
+    transform: scale(1.05);
+}
+
+/* Hero section with background image */
+.hero {
+    position: relative;
+    color: #fff;
+    text-shadow: 1px 1px 3px rgba(0,0,0,0.5);
+    padding: 100px 0;
+}
+
+.hero::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0,0,0,0.5);
+    z-index: 1;
+}
+
+.hero .container {
+    position: relative;
+    z-index: 2;
+}
+
+/* Contact CTA section with background image */
+.contact-cta {
+    position: relative;
+    color: #fff;
+    text-shadow: 1px 1px 3px rgba(0,0,0,0.5);
+    padding: 80px 0;
+}
+
+.contact-cta .container {
+    position: relative;
+    z-index: 2;
+}

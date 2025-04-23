@@ -1,0 +1,6 @@
+<svg width="200" height="80" xmlns="http://www.w3.org/2000/svg">
+  <rect width="200" height="80" fill="#0077cc"/>
+  <text x="100" y="45" font-family="Arial" font-size="20" fill="white" text-anchor="middle">CloudMasters</text>
+  <path d="M40,30 Q50,20 60,30 T80,30" stroke="white" stroke-width="2" fill="none"/>
+  <path d="M40,40 Q50,30 60,40 T80,40" stroke="white" stroke-width="2" fill="none"/>
+</svg>
