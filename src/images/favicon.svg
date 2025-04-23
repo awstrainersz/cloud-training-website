@@ -1,1 +1,6 @@
-<svg width="32" height="32" xmlns="http://www.w3.org/2000/svg"><rect width="32" height="32" fill="#0077cc"/><text x="16" y="20" font-family="Arial" font-size="12" fill="white" text-anchor="middle">CM</text></svg>
+<svg width="32" height="32" xmlns="http://www.w3.org/2000/svg">
+  <rect width="32" height="32" fill="#0077cc"/>
+  <text x="16" y="20" font-family="Arial" font-size="12" fill="white" text-anchor="middle">CM</text>
+  <path d="M8,12 Q12,8 16,12 T24,12" stroke="white" stroke-width="1" fill="none"/>
+  <path d="M8,16 Q12,12 16,16 T24,16" stroke="white" stroke-width="1" fill="none"/>
+</svg>

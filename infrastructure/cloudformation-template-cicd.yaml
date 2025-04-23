@@ -1,0 +1,424 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CloudFormation template for static website hosting with S3, CloudFront, and CI/CD pipeline'
+
+Parameters:
+  # Website Configuration
+  DomainName:
+    Type: String
+    Description: The domain name for the website (e.g., example.com)
+    Default: cloudtraining.example.com
+  
+  CreateRoute53Records:
+    Type: String
+    Description: Create Route 53 records (set to false if managing DNS elsewhere)
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+
+  HostedZoneId:
+    Type: String
+    Description: Route 53 Hosted Zone ID (required if CreateRoute53Records is true)
+    Default: ''
+  
+  # CI/CD Pipeline Configuration
+  GitHubOwner:
+    Type: String
+    Description: GitHub repository owner
+    Default: ''
+  
+  GitHubRepo:
+    Type: String
+    Description: GitHub repository name
+    Default: 'cloud-training-website'
+  
+  GitHubBranch:
+    Type: String
+    Description: GitHub branch to monitor for changes
+    Default: 'main'
+  
+  GitHubToken:
+    Type: String
+    Description: GitHub OAuth token for repository access
+    NoEcho: true
+  
+  # Website Content Configuration
+  WebsiteSourcePath:
+    Type: String
+    Description: Path within the repository where website source files are located
+    Default: 'src'
+  
+  # Cache Configuration
+  DefaultCacheTTL:
+    Type: Number
+    Description: Default TTL for CloudFront cache (in seconds)
+    Default: 86400
+    MinValue: 0
+  
+  # Environment Configuration
+  Environment:
+    Type: String
+    Description: Deployment environment
+    Default: 'prod'
+    AllowedValues: ['dev', 'test', 'staging', 'prod']
+  
+  # Notification Configuration
+  NotificationEmail:
+    Type: String
+    Description: Email address for pipeline notifications (leave empty to skip)
+    Default: ''
+
+Conditions:
+  CreateDNSRecords: !Equals [!Ref CreateRoute53Records, 'true']
+  HasNotificationEmail: !Not [!Equals [!Ref NotificationEmail, '']]
+
+Resources:
+  # S3 bucket for website hosting
+  WebsiteBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${DomainName}-${Environment}"
+      AccessControl: Private
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: error.html
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  # Bucket policy to allow CloudFront access
+  WebsiteBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref WebsiteBucket
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudfront.amazonaws.com
+            Action: s3:GetObject
+            Resource: !Sub ${WebsiteBucket.Arn}/*
+            Condition:
+              StringEquals:
+                AWS:SourceArn: !Sub arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}
+
+  # SSL Certificate
+  Certificate:
+    Type: AWS::CertificateManager::Certificate
+    Properties:
+      DomainName: !Ref DomainName
+      ValidationMethod: DNS
+      DomainValidationOptions:
+        - DomainName: !Ref DomainName
+          HostedZoneId: !Ref HostedZoneId
+
+  # CloudFront Origin Access Identity
+  CloudFrontOriginAccessIdentity:
+    Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+    Properties:
+      CloudFrontOriginAccessIdentityConfig:
+        Comment: !Sub "OAI for ${DomainName}"
+
+  # CloudFront Distribution
+  CloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Aliases:
+          - !Ref DomainName
+        Origins:
+          - DomainName: !GetAtt WebsiteBucket.RegionalDomainName
+            Id: S3Origin
+            S3OriginConfig:
+              OriginAccessIdentity: !Sub "origin-access-identity/cloudfront/${CloudFrontOriginAccessIdentity}"
+        Enabled: true
+        DefaultRootObject: index.html
+        DefaultCacheBehavior:
+          AllowedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          TargetOriginId: S3Origin
+          ForwardedValues:
+            QueryString: false
+            Cookies:
+              Forward: none
+          ViewerProtocolPolicy: redirect-to-https
+          Compress: true
+          DefaultTTL: !Ref DefaultCacheTTL
+        PriceClass: PriceClass_100
+        ViewerCertificate:
+          AcmCertificateArn: !Ref Certificate
+          SslSupportMethod: sni-only
+          MinimumProtocolVersion: TLSv1.2_2021
+        CustomErrorResponses:
+          - ErrorCode: 404
+            ResponseCode: 404
+            ResponsePagePath: /error.html
+          - ErrorCode: 403
+            ResponseCode: 403
+            ResponsePagePath: /error.html
+
+  # Route 53 Record (conditional)
+  DomainRecord:
+    Type: AWS::Route53::RecordSet
+    Condition: CreateDNSRecords
+    Properties:
+      HostedZoneId: !Ref HostedZoneId
+      Name: !Ref DomainName
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt CloudFrontDistribution.DomainName
+        HostedZoneId: Z2FDTNDATAQYW2 # CloudFront hosted zone ID (constant)
+        EvaluateTargetHealth: false
+
+  # S3 bucket for pipeline artifacts
+  ArtifactBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldArtifacts
+            Status: Enabled
+            ExpirationInDays: 30
+
+  # IAM role for CodePipeline
+  CodePipelineServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codepipeline.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSCodeStarFullAccess
+      Policies:
+        - PolicyName: CodePipelineAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:PutObject
+                  - s3:ListBucket
+                Resource:
+                  - !GetAtt ArtifactBucket.Arn
+                  - !Sub ${ArtifactBucket.Arn}/*
+              - Effect: Allow
+                Action:
+                  - cloudformation:*
+                  - iam:PassRole
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - s3:*
+                Resource:
+                  - !GetAtt WebsiteBucket.Arn
+                  - !Sub ${WebsiteBucket.Arn}/*
+              - Effect: Allow
+                Action:
+                  - cloudfront:CreateInvalidation
+                Resource: !Sub arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}
+
+  # IAM role for CodeBuild
+  CodeBuildServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+      Policies:
+        - PolicyName: CodeBuildAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:PutObject
+                Resource:
+                  - !GetAtt ArtifactBucket.Arn
+                  - !Sub ${ArtifactBucket.Arn}/*
+              - Effect: Allow
+                Action:
+                  - cloudfront:CreateInvalidation
+                Resource: !Sub arn:aws:cloudfront::${AWS::AccountId}:distribution/${CloudFrontDistribution}
+
+  # CodeBuild project for building and deploying the website
+  WebsiteBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub ${AWS::StackName}-build
+      Description: 'Build and deploy the static website'
+      ServiceRole: !GetAtt CodeBuildServiceRole.Arn
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/amazonlinux2-x86_64-standard:3.0
+        PrivilegedMode: false
+        EnvironmentVariables:
+          - Name: WEBSITE_BUCKET
+            Value: !Ref WebsiteBucket
+          - Name: CLOUDFRONT_DISTRIBUTION_ID
+            Value: !Ref CloudFrontDistribution
+          - Name: WEBSITE_SOURCE_PATH
+            Value: !Ref WebsiteSourcePath
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: |
+          version: 0.2
+          phases:
+            install:
+              runtime-versions:
+                nodejs: 14
+            build:
+              commands:
+                - echo "Deploying website files to S3..."
+                - aws s3 sync $WEBSITE_SOURCE_PATH/ s3://$WEBSITE_BUCKET/ --delete
+            post_build:
+              commands:
+                - echo "Creating CloudFront invalidation..."
+                - aws cloudfront create-invalidation --distribution-id $CLOUDFRONT_DISTRIBUTION_ID --paths "/*"
+          artifacts:
+            files:
+              - appspec.yml
+              - '**/*'
+      TimeoutInMinutes: 10
+
+  # SNS Topic for pipeline notifications
+  PipelineNotificationTopic:
+    Type: AWS::SNS::Topic
+    Condition: HasNotificationEmail
+    Properties:
+      DisplayName: !Sub "${AWS::StackName} Pipeline Notifications"
+      Subscription:
+        - Endpoint: !Ref NotificationEmail
+          Protocol: email
+
+  # CodePipeline for CI/CD
+  WebsitePipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name: !Sub ${AWS::StackName}-pipeline
+      RoleArn: !GetAtt CodePipelineServiceRole.Arn
+      ArtifactStore:
+        Type: S3
+        Location: !Ref ArtifactBucket
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: Source
+              ActionTypeId:
+                Category: Source
+                Owner: ThirdParty
+                Provider: GitHub
+                Version: '1'
+              Configuration:
+                Owner: !Ref GitHubOwner
+                Repo: !Ref GitHubRepo
+                Branch: !Ref GitHubBranch
+                OAuthToken: !Ref GitHubToken
+                PollForSourceChanges: false
+              OutputArtifacts:
+                - Name: SourceCode
+        - Name: Build
+          Actions:
+            - Name: BuildAndDeploy
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: '1'
+              Configuration:
+                ProjectName: !Ref WebsiteBuildProject
+              InputArtifacts:
+                - Name: SourceCode
+
+  # GitHub webhook for automatic pipeline triggering
+  WebhookResource:
+    Type: AWS::CodePipeline::Webhook
+    Properties:
+      Authentication: GITHUB_HMAC
+      AuthenticationConfiguration:
+        SecretToken: !Ref GitHubToken
+      Filters:
+        - JsonPath: "$.ref"
+          MatchEquals: !Sub refs/heads/${GitHubBranch}
+      TargetPipeline: !Ref WebsitePipeline
+      TargetAction: Source
+      TargetPipelineVersion: !GetAtt WebsitePipeline.Version
+      RegisterWithThirdParty: true
+
+  # CloudWatch Events rule for pipeline notifications
+  PipelineEventRule:
+    Type: AWS::Events::Rule
+    Condition: HasNotificationEmail
+    Properties:
+      Description: "Send notifications for pipeline state changes"
+      EventPattern:
+        source:
+          - "aws.codepipeline"
+        detail-type:
+          - "CodePipeline Pipeline Execution State Change"
+        detail:
+          pipeline:
+            - !Ref WebsitePipeline
+          state:
+            - "FAILED"
+            - "SUCCEEDED"
+      State: ENABLED
+      Targets:
+        - Arn: !Ref PipelineNotificationTopic
+          Id: "PipelineNotificationTarget"
+
+Outputs:
+  WebsiteBucketName:
+    Description: Name of S3 bucket to hold website content
+    Value: !Ref WebsiteBucket
+
+  CloudFrontDistributionId:
+    Description: ID of CloudFront distribution
+    Value: !Ref CloudFrontDistribution
+
+  CloudFrontDomainName:
+    Description: Domain name of CloudFront distribution
+    Value: !GetAtt CloudFrontDistribution.DomainName
+
+  WebsiteURL:
+    Description: URL of the website
+    Value: !Sub https://${DomainName}
+  
+  PipelineName:
+    Description: Name of the CI/CD pipeline
+    Value: !Ref WebsitePipeline
+  
+  PipelineConsoleURL:
+    Description: URL to the pipeline in AWS Console
+    Value: !Sub https://console.aws.amazon.com/codepipeline/home?region=${AWS::Region}#/view/${WebsitePipeline}

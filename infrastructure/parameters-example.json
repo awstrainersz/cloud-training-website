@@ -1,0 +1,46 @@
+[
+  {
+    "ParameterKey": "DomainName",
+    "ParameterValue": "cloudtraining.example.com"
+  },
+  {
+    "ParameterKey": "CreateRoute53Records",
+    "ParameterValue": "true"
+  },
+  {
+    "ParameterKey": "HostedZoneId",
+    "ParameterValue": "Z1234567890ABCDEFGHIJ"
+  },
+  {
+    "ParameterKey": "GitHubOwner",
+    "ParameterValue": "your-github-username"
+  },
+  {
+    "ParameterKey": "GitHubRepo",
+    "ParameterValue": "cloud-training-website"
+  },
+  {
+    "ParameterKey": "GitHubBranch",
+    "ParameterValue": "main"
+  },
+  {
+    "ParameterKey": "GitHubToken",
+    "ParameterValue": "your-github-token"
+  },
+  {
+    "ParameterKey": "WebsiteSourcePath",
+    "ParameterValue": "src"
+  },
+  {
+    "ParameterKey": "DefaultCacheTTL",
+    "ParameterValue": "86400"
+  },
+  {
+    "ParameterKey": "Environment",
+    "ParameterValue": "prod"
+  },
+  {
+    "ParameterKey": "NotificationEmail",
+    "ParameterValue": "your-email@example.com"
+  }
+]
